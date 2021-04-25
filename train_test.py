@@ -101,7 +101,7 @@ def train_test(mode, use_rot):
 
     shapes = shape_based_matching_py.shapeInfo_producer(padded_img, padded_mask)
     shapes.angle_range = [0, 360]
-    shapes.angle_step = 0.5
+    shapes.angle_step = 5
     shapes.scale_range = [1]
     shapes.produce_infos()  #shapes中有一个info 构成的vector，produce函数 通过range和step 重构infos
     #embed()
@@ -189,6 +189,7 @@ def train_test(mode, use_rot):
     name_list = os.listdir(img_dir)
     test_img_num = 0
     total_time = []
+    error_name_dict = dict()
     for name in name_list:
         if "tem" in name or name.endswith('json'):
             continue
@@ -249,6 +250,7 @@ def train_test(mode, use_rot):
             offset_theta = np.abs(theta_pred-  theta_gt)
             print("pts",pts,"rect_label",rect_label,"center_pred",center_pred,"theta_pred",theta_pred,"center_gt",center_gt,"theta_gt",theta_gt,"offset_center",offset_center,"offset_theta",offset_theta,"angle_i",angle_i,"tan0",tan0,"tan1",tan1)
             errors.append([offset_center,offset_theta,float(test_img_angle)-(360-float(angle_i))])
+            error_name_dict[test_img_angle] = [offset_center,offset_theta,float(test_img_angle)-(360-float(angle_i))]
             #embed()
             # r_scaled = 270/2.0*infos[match.template_id].scale
             # train_img_half_width = 270/2.0 + 100
@@ -266,9 +268,10 @@ def train_test(mode, use_rot):
             #print("pred pts",pts)
             cv2.imwrite(prefix+"img_test"+name, img)
             #cv2.waitKey(0)
-    print(errors,"""
-    """,
-    np.sum(np.array(errors)[:,0]>4),np.sum(np.abs(np.array(errors))[:,2]>5),test_img_num)
+    errors = np.abs(np.array(errors))
+    print(np.int32(errors),"""
+    """,error_name_dict,
+    np.sum(errors[:,0]>4),np.sum(errors[:,1]>4),test_img_num, "mean error offset",np.mean(errors[:,0]), "mean error theta offset",np.mean(errors[:,1]) )
     print("average time",sum(total_time)/float(len(total_time)))
 if __name__ == "__main__":
     train_test('train', True)

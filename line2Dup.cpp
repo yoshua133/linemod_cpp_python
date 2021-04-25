@@ -628,9 +628,9 @@ static void computeResponseMaps(const Mat &src, std::vector<Mat> &response_maps)
         for (int c = 0; c < src.cols; ++c)
         {
             // Least significant 4 bits of spread image pixel
-            lsb4_r[c] = src_r[c] & 15;
+            lsb4_r[c] = src_r[c] & 15; // and operation, means find a small number of 15 and 
             // Most significant 4 bits, right-shifted to be in [0, 16)
-            msb4_r[c] = (src_r[c] & 240) >> 4;
+            msb4_r[c] = (src_r[c] & 240) >> 4; //this means divided by 2^4=16
         }
     }
 
@@ -1063,22 +1063,24 @@ std::vector<Match> Detector::match(Mat source, float threshold,
 
     // For each pyramid level, precompute linear memories for each ColorGradient
     std::vector<Size> sizes;
+    //cout<<"pyramid_levels"<<pyramid_levels; // 2
     for (int l = 0; l < pyramid_levels; ++l)
     {
-        int T = T_at_level[l];
+        int T =  T_at_level[l];
+        //cout<< "T_at_level[l]" << T_at_level[l]; //4,8
         std::vector<LinearMemories> &lm_level = lm_pyramid[l];
 
         if (l > 0)
         {
             for (int i = 0; i < (int)quantizers.size(); ++i)
-                quantizers[i]->pyrDown();
+                quantizers[i]->pyrDown(); //all the quantizers aka modality will go down level
         }
 
         Mat quantized, spread_quantized;
         std::vector<Mat> response_maps;
         for (int i = 0; i < (int)quantizers.size(); ++i)
         {
-            quantizers[i]->quantize(quantized);
+            quantizers[i]->quantize(quantized); //calculate the quantized image
             spread(quantized, spread_quantized, T);
             computeResponseMaps(spread_quantized, response_maps);
 
