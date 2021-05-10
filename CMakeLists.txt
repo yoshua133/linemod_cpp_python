@@ -5,7 +5,7 @@ project(shape_based_matching)
 OPTION(USE_PYBIND "Enable pybind" ON)
 
 # debug or release
-SET(CMAKE_BUILD_TYPE "Release")
+#SET(CMAKE_BUILD_TYPE "Release")
 
 
 # arm or x86
@@ -37,7 +37,7 @@ include_directories (${INCLUDE_DIRECTORIES}
     ${PROJECT_SOURCE_DIR} "${CMAKE_CURRENT_SOURCE_DIR}/MIPP/")
 
 # test exe
-add_executable(${PROJECT_NAME}_test line2Dup.cpp test.cpp)
+add_executable(${PROJECT_NAME}_test line2Dup.cpp) #test.cpp)
 target_link_libraries(${PROJECT_NAME}_test ${OpenCV_LIBS})
 
 # pybind

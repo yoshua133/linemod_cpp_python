@@ -39,10 +39,10 @@ if __name__ == "__main__":
     #test_path = 'D:/download/pianyi/pianyi/pianyi/4/tem_101_20210305130120_11_4_298529_69249.bmp'
     #test_img = cv2.imread(test_path)
     total_time = []
-    img_dir = '/home/shimr/shapa_match/shape_based_matching-python_binding/images/'
-    label_dir = '/home/shimr/shapa_match/shape_based_matching-python_binding/images/'
-    rot_img_dir = '/home/shimr/shapa_match/shape_based_matching-python_binding/image_rot/'
-    rot_label_dir = '/home/shimr/shapa_match/shape_based_matching-python_binding/image_rot/'
+    img_dir = '/home/xiangdawei/linemod_python/linemod_cpp_python/images/'
+    label_dir = '/home/xiangdawei/linemod_python/linemod_cpp_python/images/'
+    rot_img_dir = '/home/xiangdawei/linemod_python/linemod_cpp_python/image_rot/'
+    rot_label_dir = '/home/xiangdawei/linemod_python/linemod_cpp_python/image_rot/'
     
     shutil.rmtree(rot_img_dir)  
     os.mkdir(rot_img_dir)   

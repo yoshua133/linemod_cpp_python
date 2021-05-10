@@ -47,7 +47,7 @@ PYBIND11_MODULE(shape_based_matching_py, m) {
         .def("clear_classes", &line2Dup::Detector::clear_classes)
         .def("readClasses", &line2Dup::Detector::readClasses)
         .def("match", &line2Dup::Detector::match, py::arg("sources"),
-             py::arg("threshold"), py::arg("class_ids"), py::arg("masks")=cv::Mat())
+             py::arg("threshold"), py::arg("name_i"), py::arg("class_ids"), py::arg("masks")=cv::Mat())
         .def("getTemplates", &line2Dup::Detector::getTemplates);
 
     py::class_<shape_based_matching::Info>(m, "Info")

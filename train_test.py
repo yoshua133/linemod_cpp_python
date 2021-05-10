@@ -8,20 +8,21 @@ import json
 import time
 import math
 
-prefix = "/home/shimr/shapa_match/shape_based_matching-python_binding/result_save/"
-ori_img_path = "/home/shimr/shapa_match/shape_based_matching-python_binding/images/101_20210305130120_11_4_298529_69249.bmp"
-temp_path = "/home/shimr/shapa_match/shape_based_matching-python_binding/4/tem_101_20210305130120_11_4_298529_69249.bmp"
-img_dir = '/home/shimr/shapa_match/shape_based_matching-python_binding/image_rot/'
+prefix = "/home/xiangdawei/linemod_python/linemod_cpp_python/result_save/"
+prefix_visual = "/home/xiangdawei/linemod_python/linemod_cpp_python/result_visual/"
+ori_img_path = "/home/xiangdawei/linemod_python/linemod_cpp_python/images/101_20210305130120_11_4_298529_69249.bmp"
+temp_path = "/home/xiangdawei/linemod_python/linemod_cpp_python/tem_101_20210305130120_11_4_298529_69249.bmp"
+img_dir = '/home/xiangdawei/linemod_python/linemod_cpp_python/image_rot/'
 
 
-from shapely import geometry
-
+#from shapely import geometry
+"""
 def if_inPoly(polygon, Points):
     line = geometry.LineString(polygon)
     point = geometry.Point(Points)
     polygon = geometry.Polygon(line)
     return polygon.contains(point)
-
+"""
 
 def rotateTemplate(img, rot_deg, scale):
         img = img.copy()
@@ -71,9 +72,11 @@ def get_degree_center(box):
     
 import shutil  
 shutil.rmtree(prefix)  
-os.mkdir(prefix)           
+os.mkdir(prefix)         
+shutil.rmtree(prefix_visual)  
+os.mkdir(prefix_visual)       
 def train_test(mode, use_rot):
-    detector = shape_based_matching_py.Detector(128, [4, 8]) #128是num_features [4,8]是T
+    detector = shape_based_matching_py.Detector(128, [1, 4]) #128是num_features [4,8]是T
         
     #img = cv2.imread(temp_path)
     ori_img = cv2.imread(ori_img_path)
@@ -135,7 +138,7 @@ def train_test(mode, use_rot):
                                                    info.angle-first_angle,
                 shape_based_matching_py.CV_Point2f(padded_img.shape[1]/2.0, padded_img.shape[0]/2.0))  # 加入旋转template的时候是不extend的那种，旋转中心一直是padding_img的center
             # cpp源码这里是找到template_pyramids中的first id的template pyramid 然后对每个level下的feature point 以padding image的中心旋转，因为保存feature pyramids的其实是features
-        
+        print("angles",templ_id,info.angle)
         angle_scale_map[templ_id] = [info.angle, info.scale]
         _, M = rotateTemplate(padded_img,info.angle, info.scale)
         h, w = img.shape[:2]   #padded_img.shape[:2]
@@ -188,10 +191,12 @@ def train_test(mode, use_rot):
     errors = []
     name_list = os.listdir(img_dir)
     test_img_num = 0
+    num_of_detected =  0
     total_time = []
+    simi = []
     error_name_dict = dict()
     for name in name_list:
-        if "tem" in name or name.endswith('json'):
+        if "tem" in name or name.endswith('json') or not "305" in name.split('_')[-2]:
             continue
         print(
         name)
@@ -216,7 +221,8 @@ def train_test(mode, use_rot):
         img = np.zeros((img_rows, img_cols, padded_img.shape[2]), np.uint8)
         img[:, :, :] = padded_img[0:img_rows, 0:img_cols, :]
         start = time.time()
-        matches = detector.match(img, 90, ids)
+        print("in name",name.strip('.bmp'))
+        matches = detector.match(img, 20, name.strip('.bmp'), ids)
         exc_time = time.time() - start
         total_time.append(exc_time)
         #embed()
@@ -227,7 +233,9 @@ def train_test(mode, use_rot):
         rect_label = np.array(rect_label_o) + padding
         for i in range(1):
             if len(matches) < 1:
+                print("no match")
                 continue
+            num_of_detected +=1
             match = matches[i]
             templ = detector.getTemplates("test", match.template_id)
             
@@ -248,7 +256,7 @@ def train_test(mode, use_rot):
             center_gt,theta_gt,tan1 = get_degree_center(np.array(rect_label))
             offset_center = np.sum(np.abs(center_pred-center_gt))
             offset_theta = np.abs(theta_pred-  theta_gt)
-            print("pts",pts,"rect_label",rect_label,"center_pred",center_pred,"theta_pred",theta_pred,"center_gt",center_gt,"theta_gt",theta_gt,"offset_center",offset_center,"offset_theta",offset_theta,"angle_i",angle_i,"tan0",tan0,"tan1",tan1)
+            #print("pts",pts,"rect_label",rect_label,"center_pred",center_pred,"theta_pred",theta_pred,"center_gt",center_gt,"theta_gt",theta_gt,"offset_center",offset_center,"offset_theta",offset_theta,"angle_i",angle_i,"tan0",tan0,"tan1",tan1)
             errors.append([offset_center,offset_theta,float(test_img_angle)-(360-float(angle_i))])
             error_name_dict[test_img_angle] = [offset_center,offset_theta,float(test_img_angle)-(360-float(angle_i))]
             #embed()
@@ -261,8 +269,9 @@ def train_test(mode, use_rot):
                 img = cv2.circle(img, (feat.x+match.x, feat.y+match.y), 3, (0, 0, 255), -1)
             
             # cv2 have no RotatedRect constructor?
-            #print('match.template_id: {}'.format(match.template_id))
-            #print('match.similarity: {}'.format(match.similarity))
+            print('match.template_id: {}'.format(match.template_id))
+            print('match.similarity: {}'.format(match.similarity))
+            simi.append(match.similarity)
             #print("rect_label",rect_label)
             #print("rect_label_o",rect_label_o)
             #print("pred pts",pts)
@@ -272,7 +281,11 @@ def train_test(mode, use_rot):
     print(np.int32(errors),"""
     """,error_name_dict,
     np.sum(errors[:,0]>4),np.sum(errors[:,1]>4),test_img_num, "mean error offset",np.mean(errors[:,0]), "mean error theta offset",np.mean(errors[:,1]) )
+    print("simi",simi)
+    print("simi <60",np.where(np.array(simi)<85))
     print("average time",sum(total_time)/float(len(total_time)))
+    print("num_of_detected",num_of_detected)
+
 if __name__ == "__main__":
     train_test('train', True)
     

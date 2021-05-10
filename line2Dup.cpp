@@ -1,6 +1,9 @@
 #include "line2Dup.h"
 #include <iostream>
 
+#include<time.h>
+#include <string> 
+
 using namespace std;
 using namespace cv;
 
@@ -207,7 +210,7 @@ void hysteresisGradient(Mat &magnitude, Mat &quantized_angle,
                         Mat &angle, float threshold)
 {
     // Quantize 360 degree range of orientations into 16 buckets
-    // Note that [0, 11.25), [348.75, 360) both get mapped in the end to label 0,
+    // Note that [0, 11.25), [348.75, 360) both get mapped in the end to label 0, ????D:if it is truncated by 0, [0,22,5) -> 0 [180,202.5)->8]
     // for stability of horizontal and vertical features.
     Mat_<unsigned char> quantized_unfiltered;
     angle.convertTo(quantized_unfiltered, CV_8U, 16.0 / 360.0);
@@ -560,10 +563,11 @@ static void orUnaligned8u(const uchar *src, const int src_stride,
     for (int r = 0; r < height; ++r)
     {
         int c = 0;
+        // why not just merge into one loop??
 
         // not aligned, which will happen because we move 1 bytes a time for spreading
         while (reinterpret_cast<unsigned long long>(src + c) % 16 != 0) {
-            dst[c] |= src[c];
+            dst[c] |= src[c];  // Or operation and then equal
             c++;
         }
 
@@ -571,9 +575,10 @@ static void orUnaligned8u(const uchar *src, const int src_stride,
         // note: can't use c<width !!!
         for (; c <= width-mipp::N<uint8_t>(); c+=mipp::N<uint8_t>()){
             mipp::Reg<uint8_t> src_v((uint8_t*)src + c);
-            mipp::Reg<uint8_t> dst_v((uint8_t*)dst + c);
+            mipp::Reg<uint8_t> dst_v((uint8_t*)dst + c); //D:guess this means src_v =  src[c] and res_v = src_v | dst_v
+            // then dst[c] = res_v
 
-            mipp::Reg<uint8_t> res_v = mipp::orb(src_v, dst_v);
+            mipp::Reg<uint8_t> res_v = mipp::orb(src_v, dst_v); // orb is also OR operation
             res_v.store((uint8_t*)dst + c);
         }
 
@@ -591,7 +596,7 @@ static void spread(const Mat &src, Mat &dst, int T)
     // Allocate and zero-initialize spread (OR'ed) image
     dst = Mat::zeros(src.size(), CV_8U);
 
-    // Fill in spread gradient image (section 2.3)
+    // Fill in spread gradient image (section 2.3) T=4,8
     for (int r = 0; r < T; ++r)
     {
         for (int c = 0; c < T; ++c)
@@ -602,41 +607,70 @@ static void spread(const Mat &src, Mat &dst, int T)
     }
 }
 
-static const unsigned char LUT3 = 3;
+static const unsigned char LUT3 = 2;
 // 1,2-->0 3-->LUT3
 CV_DECL_ALIGNED(16)
 static const unsigned char SIMILARITY_LUT[256] = {0, 4, LUT3, 4, 0, 4, LUT3, 4, 0, 4, LUT3, 4, 0, 4, LUT3, 4, 0, 0, 0, 0, 0, 0, 0, 0, LUT3, LUT3, LUT3, LUT3, LUT3, LUT3, LUT3, LUT3, 0, LUT3, 4, 4, LUT3, LUT3, 4, 4, 0, LUT3, 4, 4, LUT3, LUT3, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, LUT3, LUT3, 4, 4, 4, 4, LUT3, LUT3, LUT3, LUT3, 4, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, LUT3, LUT3, LUT3, LUT3, 4, 4, 4, 4, 4, 4, 4, 4, 0, LUT3, 0, LUT3, 0, LUT3, 0, LUT3, 0, LUT3, 0, LUT3, 0, LUT3, 0, LUT3, 0, 0, 0, 0, 0, 0, 0, 0, LUT3, LUT3, LUT3, LUT3, LUT3, LUT3, LUT3, LUT3, 0, 4, LUT3, 4, 0, 4, LUT3, 4, 0, 4, LUT3, 4, 0, 4, LUT3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, LUT3, 4, 4, LUT3, LUT3, 4, 4, 0, LUT3, 4, 4, LUT3, LUT3, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, LUT3, LUT3, 4, 4, 4, 4, LUT3, LUT3, LUT3, LUT3, 4, 4, 4, 4, 0, LUT3, 0, LUT3, 0, LUT3, 0, LUT3, 0, LUT3, 0, LUT3, 0, LUT3, 0, LUT3, 0, 0, 0, 0, LUT3, LUT3, LUT3, LUT3, 4, 4, 4, 4, 4, 4, 4, 4};
+inline int com_simi(int ori, uchar ori_bits){
+    if (((ori_bits >> ori) & 1) ==1){
+        return 4;
+    }
+    if (ori ==0){
+        if ( (((ori_bits >> 1) & 1) ==1) || (((ori_bits >> 7) & 1) ==1) ){
+            return LUT3;
+        }
+        else{return 0;}
+    }
+    else if (ori ==7){
+        if ( (((ori_bits >> 6) & 1) ==1) || ((ori_bits  & 1) ==1) ){
+            return LUT3;
+        }
+        else{return 0;}
+
+    }
+    else{
+        if ( (((ori_bits >> (ori-1))& 1) ==1) || (((ori_bits >> (ori+1)) & 1) ==1) ){
+            return LUT3;
+        }
+        else{return 0;}
+
+    }
+}
+
 
 static void computeResponseMaps(const Mat &src, std::vector<Mat> &response_maps)
 {
+    Timer timer3;
     CV_Assert((src.rows * src.cols) % 16 == 0);
 
     // Allocate response maps
     response_maps.resize(8);
     for (int i = 0; i < 8; ++i)
         response_maps[i].create(src.size(), CV_8U);
+    
+    const uchar *src_data = src.ptr<uchar>();
 
-    Mat lsb4(src.size(), CV_8U);
-    Mat msb4(src.size(), CV_8U);
+    //Mat lsb4(src.size(), CV_8U);
+    // Mat msb4(src.size(), CV_8U);
 
-    for (int r = 0; r < src.rows; ++r)
+    // for (int r = 0; r < src.rows; ++r)
+    // {
+    //     const uchar *src_r = src.ptr(r);
+    //     uchar *lsb4_r = lsb4.ptr(r);
+    //     uchar *msb4_r = msb4.ptr(r);
+
+    //     for (int c = 0; c < src.cols; ++c) //D: lsb:coding whether the latter 4 orientation in the pixel, msb:the ahead 4.
+    //     {
+    //         // Least significant 4 bits of spread image pixel
+    //         lsb4_r[c] = src_r[c] & 15; // and operation, means find a small number of 15 and 
+    //         // Most significant 4 bits, right-shifted to be in [0, 16)
+    //         msb4_r[c] = (src_r[c] & 240) >> 4; //this means divided by 2^4=16
+    //     }
+    // }
+
     {
-        const uchar *src_r = src.ptr(r);
-        uchar *lsb4_r = lsb4.ptr(r);
-        uchar *msb4_r = msb4.ptr(r);
-
-        for (int c = 0; c < src.cols; ++c)
-        {
-            // Least significant 4 bits of spread image pixel
-            lsb4_r[c] = src_r[c] & 15; // and operation, means find a small number of 15 and 
-            // Most significant 4 bits, right-shifted to be in [0, 16)
-            msb4_r[c] = (src_r[c] & 240) >> 4; //this means divided by 2^4=16
-        }
-    }
-
-    {
-        uchar *lsb4_data = lsb4.ptr<uchar>();
-        uchar *msb4_data = msb4.ptr<uchar>();
+        // uchar *lsb4_data = lsb4.ptr<uchar>();
+        // uchar *msb4_data = msb4.ptr<uchar>();
 
         bool no_max = true;
         bool no_shuff = true;
@@ -649,75 +683,186 @@ static void computeResponseMaps(const Mat &src, std::vector<Mat> &response_maps)
         no_shuff = false;
 #endif
         // LUT is designed for 128 bits SIMD, so quite triky for others
-
+        //timer3.out("create response map");
         // For each of the 8 quantized orientations...
         for (int ori = 0; ori < 8; ++ori){
             uchar *map_data = response_maps[ori].ptr<uchar>();
-            const uchar *lut_low = SIMILARITY_LUT + 32 * ori;
+            // const uchar *lut_low = SIMILARITY_LUT + 32 * ori;
 
-            if(mipp::N<uint8_t>() == 1 || no_max || no_shuff){ // no SIMD
-                for (int i = 0; i < src.rows * src.cols; ++i)
-                    map_data[i] = std::max(lut_low[lsb4_data[i]], lut_low[msb4_data[i] + 16]);
-            }
-            else if(mipp::N<uint8_t>() == 16){ // 128 SIMD, no add base
+            
+            for (int i = 0; i < src.rows * src.cols; ++i)
+                map_data[i] = com_simi(ori, src_data[i]);//std::max(lut_low[lsb4_data[i]], lut_low[msb4_data[i] + 16]);
+            std::string text = "one time ";
+            text += std::to_string(ori);
+            //timer3.out(text);
+            // else if(mipp::N<uint8_t>() == 16){ // 128 SIMD, no add base
 
-                const uchar *lut_low = SIMILARITY_LUT + 32 * ori;
-                mipp::Reg<uint8_t> lut_low_v((uint8_t*)lut_low);
-                mipp::Reg<uint8_t> lut_high_v((uint8_t*)lut_low + 16);
+            //     // const uchar *lut_low = SIMILARITY_LUT + 32 * ori;
+            //     // mipp::Reg<uint8_t> lut_low_v((uint8_t*)lut_low);
+            //     // mipp::Reg<uint8_t> lut_high_v((uint8_t*)lut_low + 16);
 
-                for (int i = 0; i < src.rows * src.cols; i += mipp::N<uint8_t>()){
-                    mipp::Reg<uint8_t> low_mask((uint8_t*)lsb4_data + i);
-                    mipp::Reg<uint8_t> high_mask((uint8_t*)msb4_data + i);
+            //     for (int i = 0; i < src.rows * src.cols; i += mipp::N<uint8_t>()){
+            //         mipp::Reg<uint8_t> low_mask((uint8_t*)lsb4_data + i);
+            //         mipp::Reg<uint8_t> high_mask((uint8_t*)msb4_data + i);
 
-                    mipp::Reg<uint8_t> low_res = mipp::shuff(lut_low_v, low_mask);
-                    mipp::Reg<uint8_t> high_res = mipp::shuff(lut_high_v, high_mask);
+            //         mipp::Reg<uint8_t> low_res = mipp::shuff(lut_low_v, low_mask);
+            //         mipp::Reg<uint8_t> high_res = mipp::shuff(lut_high_v, high_mask);
 
-                    mipp::Reg<uint8_t> result = mipp::max(low_res, high_res);
-                    result.store((uint8_t*)map_data + i);
-                }
-            }
-            else if(mipp::N<uint8_t>() == 16 || mipp::N<uint8_t>() == 32
-                    || mipp::N<uint8_t>() == 64){ //128 256 512 SIMD
-                CV_Assert((src.rows * src.cols) % mipp::N<uint8_t>() == 0);
+            //         mipp::Reg<uint8_t> result = mipp::max(low_res, high_res);
+            //         result.store((uint8_t*)map_data + i);
+            //     }
+            // }
+            // else if(mipp::N<uint8_t>() == 16 || mipp::N<uint8_t>() == 32
+            //         || mipp::N<uint8_t>() == 64){ //128 256 512 SIMD
+            //     CV_Assert((src.20210430_000935part0_apr18_revised_crop1_725_aug_p_0_attri_9resnet_101pretrain-Falsesize224(lut_low, 16, lut_temp+slice*16);
+            //     }
+            //     mipp::Reg<uint8_t> lut_low_v(lut_temp);
 
-                uint8_t lut_temp[mipp::N<uint8_t>()] = {0};
+            //     uint8_t base_add_array[mipp::N<uint8_t>()] = {0};
+            //     for(uint8_t slice=0; slice<mipp::N<uint8_t>(); slice+=16){
+            //         std::copy_n(lut_low+16, 16, lut_temp+slice);
+            //         std::fill_n(base_add_array+slice, 16, slice);
+            //     }Timerg<uint8_t> mask_low_v((uint8_t*)lsb4_data+i);
+            //         mipp::Reg<uint8_t> mask_high_v((uint8_t*)msb4_data+i);
 
-                for(int slice=0; slice<mipp::N<uint8_t>()/16; slice++){
-                    std::copy_n(lut_low, 16, lut_temp+slice*16);
-                }
-                mipp::Reg<uint8_t> lut_low_v(lut_temp);
+            //         mask_low_v += base_add;
+            //         mask_high_v += base_add;
 
-                uint8_t base_add_array[mipp::N<uint8_t>()] = {0};
-                for(uint8_t slice=0; slice<mipp::N<uint8_t>(); slice+=16){
-                    std::copy_n(lut_low+16, 16, lut_temp+slice);
-                    std::fill_n(base_add_array+slice, 16, slice);
-                }
-                mipp::Reg<uint8_t> base_add(base_add_array);
-                mipp::Reg<uint8_t> lut_high_v(lut_temp);
+            //         mipp::Reg<uint8_t> shuff_low_result = mipp::shuff(lut_low_v, mask_low_v);
+            //         mipp::Reg<uint8_t> shuff_high_result = mipp::shuff(lut_high_v, mask_high_v);
 
-                for (int i = 0; i < src.rows * src.cols; i += mipp::N<uint8_t>()){
-                    mipp::Reg<uint8_t> mask_low_v((uint8_t*)lsb4_data+i);
-                    mipp::Reg<uint8_t> mask_high_v((uint8_t*)msb4_data+i);
-
-                    mask_low_v += base_add;
-                    mask_high_v += base_add;
-
-                    mipp::Reg<uint8_t> shuff_low_result = mipp::shuff(lut_low_v, mask_low_v);
-                    mipp::Reg<uint8_t> shuff_high_result = mipp::shuff(lut_high_v, mask_high_v);
-
-                    mipp::Reg<uint8_t> result = mipp::max(shuff_low_result, shuff_high_result);
-                    result.store((uint8_t*)map_data + i);
-                }
-            }
-            else{
-                for (int i = 0; i < src.rows * src.cols; ++i)
-                    map_data[i] = std::max(lut_low[lsb4_data[i]], lut_low[msb4_data[i] + 16]);
-            }
+            //         mipp::Reg<uint8_t> result = mipp::max(shuff_low_result, shuff_high_result);
+            //         result.store((uint8_t*)map_data + i);
+            //         }
+            //     }
+            // else{
+            //     for (int i = 0; i < src.rows * src.cols; ++i)
+            //         //map_data[i] = std::max(lut_low[lsb4_data[i]], lut_low[msb4_data[i] + 16]);
+            //         map_data[i] = com_simi(ori, src_data[i])            
+            // }
         }
 
 
     }
 }
+
+
+
+
+
+// below is the original compute
+
+// static void computeResponseMaps(const Mat &src, std::vector<Mat> &response_maps)
+// {
+//     CV_Assert((src.rows * src.cols) % 16 == 0);
+
+//     // Allocate response maps
+//     response_maps.resize(8);
+//     for (int i = 0; i < 8; ++i)
+//         response_maps[i].create(src.size(), CV_8U);
+
+//     Mat lsb4(src.size(), CV_8U);
+//     Mat msb4(src.size(), CV_8U);
+
+//     for (int r = 0; r < src.rows; ++r)
+//     {
+//         const uchar *src_r = src.ptr(r);
+//         uchar *lsb4_r = lsb4.ptr(r);
+//         uchar *msb4_r = msb4.ptr(r);
+
+//         for (int c = 0; c < src.cols; ++c) //D: lsb:coding whether the latter 4 orientation in the pixel, msb:the ahead 4.
+//         {
+//             // Least significant 4 bits of spread image pixel
+//             lsb4_r[c] = src_r[c] & 15; // and operation, means find a small number of 15 and 
+//             // Most significant 4 bits, right-shifted to be in [0, 16)
+//             msb4_r[c] = (src_r[c] & 240) >> 4; //this means divided by 2^4=16
+//         }
+//     }
+
+//     {
+//         uchar *lsb4_data = lsb4.ptr<uchar>();
+//         uchar *msb4_data = msb4.ptr<uchar>();
+
+//         bool no_max = true;
+//         bool no_shuff = true;
+
+// #ifdef has_max_int8_t
+//         no_max = false;
+// #endif
+
+// #ifdef has_shuff_int8_t
+//         no_shuff = false;
+// #endif
+//         // LUT is designed for 128 bits SIMD, so quite triky for others
+
+//         // For each of the 8 quantized orientations...
+//         for (int ori = 0; ori < 8; ++ori){
+//             uchar *map_data = response_maps[ori].ptr<uchar>();
+//             const uchar *lut_low = SIMILARITY_LUT + 32 * ori;
+
+//             if(mipp::N<uint8_t>() == 1 || no_max || no_shuff){ // no SIMD
+//                 for (int i = 0; i < src.rows * src.cols; ++i)
+//                     map_data[i] = std::max(lut_low[lsb4_data[i]], lut_low[msb4_data[i] + 16]);
+//             }
+//             else if(mipp::N<uint8_t>() == 16){ // 128 SIMD, no add base
+
+//                 const uchar *lut_low = SIMILARITY_LUT + 32 * ori;
+//                 mipp::Reg<uint8_t> lut_low_v((uint8_t*)lut_low);
+//                 mipp::Reg<uint8_t> lut_high_v((uint8_t*)lut_low + 16);
+
+//                 for (int i = 0; i < src.rows * src.cols; i += mipp::N<uint8_t>()){
+//                     mipp::Reg<uint8_t> low_mask((uint8_t*)lsb4_data + i);
+//                     mipp::Reg<uint8_t> high_mask((uint8_t*)msb4_data + i);
+
+//                     mipp::Reg<uint8_t> low_res = mipp::shuff(lut_low_v, low_mask);
+//                     mipp::Reg<uint8_t> high_res = mipp::shuff(lut_high_v, high_mask);
+
+//                     mipp::Reg<uint8_t> result = mipp::max(low_res, high_res);
+//                     result.store((uint8_t*)map_data + i);
+//                 }
+//             }
+//             else if(mipp::N<uint8_t>() == 16 || mipp::N<uint8_t>() == 32
+//                     || mipp::N<uint8_t>() == 64){ //128 256 512 SIMD
+//                 CV_Assert((src.rows * src.cols) % mipp::N<uint8_t>() == 0);
+
+//                 uint8_t lut_temp[mipp::N<uint8_t>()] = {0};
+
+//                 for(int slice=0; slice<mipp::N<uint8_t>()/16; slice++){
+//                     std::copy_n(lut_low, 16, lut_temp+slice*16);
+//                 }
+//                 mipp::Reg<uint8_t> lut_low_v(lut_temp);
+
+//                 uint8_t base_add_array[mipp::N<uint8_t>()] = {0};
+//                 for(uint8_t slice=0; slice<mipp::N<uint8_t>(); slice+=16){
+//                     std::copy_n(lut_low+16, 16, lut_temp+slice);
+//                     std::fill_n(base_add_array+slice, 16, slice);
+//                 }
+//                 mipp::Reg<uint8_t> base_add(base_add_array);
+//                 mipp::Reg<uint8_t> lut_high_v(lut_temp);
+
+//                 for (int i = 0; i < src.rows * src.cols; i += mipp::N<uint8_t>()){
+//                     mipp::Reg<uint8_t> mask_low_v((uint8_t*)lsb4_data+i);
+//                     mipp::Reg<uint8_t> mask_high_v((uint8_t*)msb4_data+i);
+
+//                     mask_low_v += base_add;
+//                     mask_high_v += base_add;
+
+//                     mipp::Reg<uint8_t> shuff_low_result = mipp::shuff(lut_low_v, mask_low_v);
+//                     mipp::Reg<uint8_t> shuff_high_result = mipp::shuff(lut_high_v, mask_high_v);
+
+//                     mipp::Reg<uint8_t> result = mipp::max(shuff_low_result, shuff_high_result);
+//                     result.store((uint8_t*)map_data + i);
+//                     }
+//                 }
+//             else{
+//                 for (int i = 0; i < src.rows * src.cols; ++i)
+//                     map_data[i] = std::max(lut_low[lsb4_data[i]], lut_low[msb4_data[i] + 16]);
+//             }
+//         }
+
+
+//     }
+// }
 
 static void linearize(const Mat &response_map, Mat &linearized, int T)
 {
@@ -743,7 +888,7 @@ static void linearize(const Mat &response_map, Mat &linearized, int T)
             {
                 const uchar *response_data = response_map.ptr(r);
                 for (int c = c_start; c < response_map.cols; c += T)
-                    *memory++ = response_data[c];
+                    *memory++ = response_data[c];// memory++ and then memory = response_data
             }
         }
     }
@@ -905,7 +1050,7 @@ static void similarity_64(const std::vector<Mat> &linear_memories, const Templat
     /// @todo Handle more than 255/MAX_RESPONSE features!!
 
     // Decimate input image size by factor of T
-    int W = size.width / T;
+    int W = size.width / T;   //size is the input image size
     int H = size.height / T;
 
     // Feature dimensions, decimated by factor T and rounded up
@@ -921,6 +1066,7 @@ static void similarity_64(const std::vector<Mat> &linear_memories, const Templat
     // wrapped template matches must be filtered out!
     int template_positions = span_y * W + span_x + 1; // why add 1?
     //int template_positions = (span_y - 1) * W + span_x; // More correct?
+    // D:???? why not (span_x+1)*(span_y+1)
 
     /// @todo In old code, dst is buffer of size m_U. Could make it something like
     /// (span_x)x(span_y) instead?
@@ -1039,24 +1185,57 @@ Detector::Detector(std::vector<int> T)
     T_at_level = T;
 }
 
+string Replace(string& str, const string& sub, const string& mod) {
+    string tmp(str);
+    tmp.replace(tmp.find(sub), mod.length(), mod);
+    return tmp;
+}
+
+void save(string name_i, std::vector<Mat> &data){
+    for (int j =0;j<data.size();j++){
+        string name_j = Replace(name_i, "spread", "_"+std::to_string(j)+"_response.xml");
+        string name_j_img = Replace(name_i, "spread", "_"+std::to_string(j)+"_response.png");
+        //cout<< "name_j" <<name_j;
+        //cout<< "name_j_img" << name_j_img;
+        FileStorage fs(name_j, FileStorage::WRITE);
+        fs<<"vocabulary"<< data[j];
+        fs.release();
+        cv::imwrite(name_j_img, data[j]);
+    }
+}
+
+
+void save_single(string name_i, Mat &data){
+    FileStorage fs(name_i, FileStorage::WRITE);
+    fs<<"vocabulary"<< data;
+    fs.release();
+    cv::imwrite(Replace(name_i, "xml","png"), data);
+    
+}
+
+
+
+
 Detector::Detector(int num_features, std::vector<int> T, float weak_thresh, float strong_threash)
 {
     this->modality = makePtr<ColorGradient>(weak_thresh, num_features, strong_threash);
     pyramid_levels = T.size();
     T_at_level = T;
 }
-
-std::vector<Match> Detector::match(Mat source, float threshold,
+string prefix = "/home/xiangdawei/linemod_python/linemod_cpp_python/result_visual/";
+std::vector<Match> Detector::match(Mat source, float threshold, std::string name_i ,
                                    const std::vector<std::string> &class_ids, const Mat mask) const
 {
     Timer timer;
+    Timer timer2;
     std::vector<Match> matches;
-
+    cout << "match name-i   "<< name_i;
+    cout << "mat shape" << source.size();
     // Initialize each ColorGradient with our sources
     std::vector<Ptr<ColorGradientPyramid>> quantizers;
     CV_Assert(mask.empty() || mask.size() == source.size());
     quantizers.push_back(modality->process(source, mask));
-
+    //timer2.out("process");
     // pyramid level -> ColorGradient -> quantization
     LinearMemoryPyramid lm_pyramid(pyramid_levels,
                                    std::vector<LinearMemories>(1, LinearMemories(8)));
@@ -1064,12 +1243,15 @@ std::vector<Match> Detector::match(Mat source, float threshold,
     // For each pyramid level, precompute linear memories for each ColorGradient
     std::vector<Size> sizes;
     //cout<<"pyramid_levels"<<pyramid_levels; // 2
+    //timer2.out("lm pyramids");
+    //Mat quantized, spread_quantized;
+    std::vector<Mat> response_maps;
     for (int l = 0; l < pyramid_levels; ++l)
     {
         int T =  T_at_level[l];
         //cout<< "T_at_level[l]" << T_at_level[l]; //4,8
         std::vector<LinearMemories> &lm_level = lm_pyramid[l];
-
+        //timer2.reset();
         if (l > 0)
         {
             for (int i = 0; i < (int)quantizers.size(); ++i)
@@ -1081,17 +1263,47 @@ std::vector<Match> Detector::match(Mat source, float threshold,
         for (int i = 0; i < (int)quantizers.size(); ++i)
         {
             quantizers[i]->quantize(quantized); //calculate the quantized image
-            spread(quantized, spread_quantized, T);
+            //timer2.out("quantize");
+            //timer2.reset();
+            spread(quantized, spread_quantized,1);
+            //timer2.out("spread");
+            //timer2.reset();
             computeResponseMaps(spread_quantized, response_maps);
-
+            //timer2.out("computeResponseMaps True");
+            //timer2.reset();
             LinearMemories &memories = lm_level[i];
             for (int j = 0; j < 8; ++j)
                 linearize(response_maps[j], memories[j], T);
+            //timer2.out("linearize ");
+            //stimer2.reset();
         }
+        string input = "/home/xiangdawei/linemod_python/linemod_cpp_python/result_visual/spread";
+        string output_spread_img = Replace(input, "spread", name_i+"spread.png");
+        string output_spread = Replace(input, "spread", name_i+"spread.xml");
+        string output_quantized_img = Replace(input, "spread", name_i+"quantized.png");
+        string output_quantized = Replace(input, "spread", name_i+"quantized.xml");
+        string output_response = Replace(input, "spread", name_i+"response.xml");
+
+        //std::cout << "quantized"<< quantized.size()<<"     ";
+        //std::cout << "spread_quantized"<< spread_quantized.size()<<"     ";
+        //std::cout << "response_maps 0"<< response_maps[0].size()<<"     ";
+        //std::cout << "response_maps 7"<< response_maps[7].size()<<"     ";
+
+        FileStorage fs(output_spread, FileStorage::WRITE);
+        fs<<"vocabulary"<<spread_quantized;
+        fs.release();
+        cv::imwrite(output_spread_img, spread_quantized);
+
+        FileStorage fs2(output_quantized, FileStorage::WRITE);
+        fs2<<"vocabulary"<<quantized;
+        fs2.release();
+        cv::imwrite(output_quantized_img, quantized);
+        
+        save(output_spread, response_maps);
 
         sizes.push_back(quantized.size());
     }
-
+    
     timer.out("construct response map");
 
     if (class_ids.empty())
@@ -1107,6 +1319,7 @@ std::vector<Match> Detector::match(Mat source, float threshold,
         for (int i = 0; i < (int)class_ids.size(); ++i)
         {
             TemplatesMap::const_iterator it = class_templates.find(class_ids[i]);
+            //cout << "template_pyramids size" << it->second.size();
             if (it != class_templates.end())
                 matchClass(lm_pyramid, sizes, threshold, matches, it->first, it->second);
         }
@@ -1119,7 +1332,7 @@ std::vector<Match> Detector::match(Mat source, float threshold,
 
     timer.out("templ match");
 
-    return matches;
+    return matches;//, quantized, spread_quantized, response_maps;
 }
 
 // Used to filter out weak matches
@@ -1131,7 +1344,7 @@ struct MatchPredicate
 };
 
 void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
-                          const std::vector<Size> &sizes,
+                          const std::vector<Size> &sizes, //size is the input image size
                           float threshold, std::vector<Match> &matches,
                           const std::string &class_id,
                           const std::vector<TemplatePyramid> &template_pyramids) const
@@ -1139,28 +1352,30 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
 #pragma omp declare reduction \
     (omp_insert: std::vector<Match>: omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end()))
 
-#pragma omp parallel for reduction(omp_insert:matches)
+//#pragma omp parallel for reduction(omp_insert:matches) // compilors parallel operations
     for (size_t template_id = 0; template_id < template_pyramids.size(); ++template_id)
     {
         const TemplatePyramid &tp = template_pyramids[template_id];
         // First match over the whole image at the lowest pyramid level
         /// @todo Factor this out into separate function
-        const std::vector<LinearMemories> &lowest_lm = lm_pyramid.back();
+        const std::vector<LinearMemories> &lowest_lm = lm_pyramid.back(); //lm_pyramid[1], the  resolution lowest level
 
         std::vector<Match> candidates;
         {
             // Compute similarity maps for each ColorGradient at lowest pyramid level
             Mat similarities;
-            int lowest_start = static_cast<int>(tp.size() - 1);
-            int lowest_T = T_at_level.back();
+            int lowest_start = static_cast<int>(tp.size() - 1);// 2-1 = 1
+            //cout <<"lowest_start"<<lowest_start;
+            int lowest_T = T_at_level.back(); // back() return the last element, 8
+            //cout << "lowest_T" <<lowest_T;
             int num_features = 0;
 
             {
-                const Template &templ = tp[lowest_start];
+                const Template &templ = tp[lowest_start]; // 2-nd level templ
                 num_features += static_cast<int>(templ.features.size());
-
+                cout << "num_features"<<num_features;
                 if (templ.features.size() < 64){
-                    similarity_64(lowest_lm[0], templ, similarities, sizes.back(), lowest_T);
+                    similarity_64(lowest_lm[0], templ, similarities, sizes.back(), lowest_T); //0 in lowest_lm[0] means only one quantizer
                     similarities.convertTo(similarities, CV_16U);
                 }else if (templ.features.size() < 8192){
                     similarity(lowest_lm[0], templ, similarities, sizes.back(), lowest_T);
@@ -1168,37 +1383,45 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
                     CV_Error(Error::StsBadArg, "feature size too large");
                 }
             }
-
+            if (template_id ==61){
+                save_single(prefix+"fist_simi.xml",similarities);
+            }
+            //cout << "first similarity size" << similarities.size();
             // Find initial matches
+            //D: similarity shape=[H/T,W/T] ?
             for (int r = 0; r < similarities.rows; ++r)
             {
                 ushort *row = similarities.ptr<ushort>(r);
                 for (int c = 0; c < similarities.cols; ++c)
                 {
                     int raw_score = row[c];
+                    //cout<<"raw score"<<raw_score<<"  "<<threshold;
                     float score = (raw_score * 100.f) / (4 * num_features);
 
                     if (score > threshold)
                     {
-                        int offset = lowest_T / 2 + (lowest_T % 2 - 1);
+                        int offset = lowest_T / 2 + (lowest_T % 2 - 1); //
                         int x = c * lowest_T + offset;
                         int y = r * lowest_T + offset;
-                        candidates.push_back(Match(x, y, score, class_id, static_cast<int>(template_id)));
+                        //cout<<"lowest_T "<<lowest_T<<" c "<<c<< " r "<<r;
+                        candidates.push_back(Match(x, y, score, class_id, static_cast<int>(template_id))); //match save the coordinate in the original input image
                     }
                 }
             }
+            if (template_id ==61){cout<<template_id<<" first level candidate length "<<candidates.size();}
         }
 
 
         // Locally refine each match by marching up the pyramid
-        for (int l = pyramid_levels - 2; l >= 0; --l)
+        for (int l = pyramid_levels - 2; l >= 0; --l) //l=0
         {
             const std::vector<LinearMemories> &lms = lm_pyramid[l];
-            int T = T_at_level[l];
-            int start = static_cast<int>(l);
-            Size size = sizes[l];
+            int T = T_at_level[l];//4
+            //cout << "Second time T"<<T;
+            int start = static_cast<int>(l); //0
+            Size size = sizes[l];// input image size
             int border = 8 * T;
-            int offset = T / 2 + (T % 2 - 1);
+            int offset = T / 2 + (T % 2 - 1); //
             int max_x = size.width - tp[start].width - border;
             int max_y = size.height - tp[start].height - border;
 
@@ -1251,10 +1474,14 @@ void Detector::matchClass(const LinearMemoryPyramid &lm_pyramid,
                             best_r = r;
                             best_c = c;
                         }
+                        if (template_id ==61){
+                            cout<<" best_score "<<best_score<<" "<<best_r<<" "<<best_c;
+                        }
                     }
                 }
                 // Update current match
                 match2.similarity = best_score;
+                cout << "best score" << best_score;
                 match2.x = (x / T - 8 + best_c) * T + offset;
                 match2.y = (y / T - 8 + best_r) * T + offset;
             }
@@ -1511,3 +1738,515 @@ void Detector::writeClasses(const std::string &format) const
 }
 
 } // namespace line2Dup
+
+
+
+
+
+
+
+
+
+
+
+#include <memory>
+#include <iostream>
+#include <assert.h>
+#include <chrono>
+using namespace std;
+using namespace cv;
+
+static std::string prefix = "/home/xiangdawei/linemod_python/linemod_cpp_python/test_files/";
+
+
+// NMS, got from cv::dnn so we don't need opencv contrib
+// just collapse it
+namespace  cv_dnn {
+namespace
+{
+
+template <typename T>
+static inline bool SortScorePairDescend(const std::pair<float, T>& pair1,
+                          const std::pair<float, T>& pair2)
+{
+    return pair1.first > pair2.first;
+}
+
+} // namespace
+
+inline void GetMaxScoreIndex(const std::vector<float>& scores, const float threshold, const int top_k,
+                      std::vector<std::pair<float, int> >& score_index_vec)
+{
+    for (size_t i = 0; i < scores.size(); ++i)
+    {
+        if (scores[i] > threshold)
+        {
+            score_index_vec.push_back(std::make_pair(scores[i], i));
+        }
+    }
+    std::stable_sort(score_index_vec.begin(), score_index_vec.end(),
+                     SortScorePairDescend<int>);
+    if (top_k > 0 && top_k < (int)score_index_vec.size())
+    {
+        score_index_vec.resize(top_k);
+    }
+}
+
+template <typename BoxType>
+inline void NMSFast_(const std::vector<BoxType>& bboxes,
+      const std::vector<float>& scores, const float score_threshold,
+      const float nms_threshold, const float eta, const int top_k,
+      std::vector<int>& indices, float (*computeOverlap)(const BoxType&, const BoxType&))
+{
+    CV_Assert(bboxes.size() == scores.size());
+    std::vector<std::pair<float, int> > score_index_vec;
+    GetMaxScoreIndex(scores, score_threshold, top_k, score_index_vec);
+
+    // Do nms.
+    float adaptive_threshold = nms_threshold;
+    indices.clear();
+    for (size_t i = 0; i < score_index_vec.size(); ++i) {
+        const int idx = score_index_vec[i].second;
+        bool keep = true;
+        for (int k = 0; k < (int)indices.size() && keep; ++k) {
+            const int kept_idx = indices[k];
+            float overlap = computeOverlap(bboxes[idx], bboxes[kept_idx]);
+            keep = overlap <= adaptive_threshold;
+        }
+        if (keep)
+            indices.push_back(idx);
+        if (keep && eta < 1 && adaptive_threshold > 0.5) {
+          adaptive_threshold *= eta;
+        }
+    }
+}
+
+
+// copied from opencv 3.4, not exist in 3.0
+template<typename _Tp> static inline
+double jaccardDistance__(const Rect_<_Tp>& a, const Rect_<_Tp>& b) {
+    _Tp Aa = a.area();
+    _Tp Ab = b.area();
+
+    if ((Aa + Ab) <= std::numeric_limits<_Tp>::epsilon()) {
+        // jaccard_index = 1 -> distance = 0
+        return 0.0;
+    }
+
+    double Aab = (a & b).area();
+    // distance = 1 - jaccard_index
+    return 1.0 - Aab / (Aa + Ab - Aab);
+}
+
+template <typename T>
+static inline float rectOverlap(const T& a, const T& b)
+{
+    return 1.f - static_cast<float>(jaccardDistance__(a, b));
+}
+
+void NMSBoxes(const std::vector<Rect>& bboxes, const std::vector<float>& scores,
+                          const float score_threshold, const float nms_threshold,
+                          std::vector<int>& indices, const float eta=1, const int top_k=0)
+{
+    NMSFast_(bboxes, scores, score_threshold, nms_threshold, eta, top_k, indices, rectOverlap);
+}
+
+}
+
+void scale_test(string mode = "test"){
+    int num_feature = 150;
+
+    // feature numbers(how many ori in one templates?)
+    // two pyramids, lower pyramid(more pixels) in stride 4, lower in stride 8
+    line2Dup::Detector detector(num_feature, {4, 8});
+
+//    mode = "test";
+    if(mode == "train"){
+        Mat img = cv::imread(prefix+"case0/templ/circle.png");
+        assert(!img.empty() && "check your img path");
+        shape_based_matching::shapeInfo_producer shapes(img);
+
+        shapes.scale_range = {0.1f, 1};
+        shapes.scale_step = 0.01f;
+        shapes.produce_infos();
+
+        std::vector<shape_based_matching::Info> infos_have_templ;
+        string class_id = "circle";
+        for(auto& info: shapes.infos){
+
+            // template img, id, mask,
+            //feature numbers(missing it means using the detector initial num)
+            int templ_id = detector.addTemplate(shapes.src_of(info), class_id, shapes.mask_of(info),
+                                                int(num_feature*info.scale));
+            std::cout << "templ_id: " << templ_id << std::endl;
+
+            // may fail when asking for too many feature_nums for small training img
+            if(templ_id != -1){  // only record info when we successfully add template
+                infos_have_templ.push_back(info);
+            }
+        }
+
+        // save templates
+        detector.writeClasses(prefix+"case0/%s_templ.yaml");
+
+        // save infos,
+        // in this simple case infos are not used
+        shapes.save_infos(infos_have_templ, prefix + "case0/circle_info.yaml");
+        std::cout << "train end" << std::endl << std::endl;
+
+    }else if(mode=="test"){
+        std::vector<std::string> ids;
+
+        // read templates
+        ids.push_back("circle");
+        detector.readClasses(ids, prefix+"case0/%s_templ.yaml");
+
+        Mat test_img = imread(prefix+"case0/1.jpg");
+        assert(!test_img.empty() && "check your img path");
+
+        // make the img having 32*n width & height
+        // at least 16*n here for two pyrimads with strides 4 8
+        int stride = 32;
+        int n = test_img.rows/stride;
+        int m = test_img.cols/stride;
+        Rect roi(0, 0, stride*m , stride*n);
+        Mat img = test_img(roi).clone();
+        assert(img.isContinuous());
+
+        Timer timer;
+        // match, img, min socre, ids
+        auto matches = detector.match(img, 90, "test", ids);
+        // one output match:
+        // x: top left x
+        // y: top left y
+        // template_id: used to find templates
+        // similarity: scores, 100 is best
+        timer.out();
+
+        std::cout << "matches.size(): " << matches.size() << std::endl;
+        size_t top5 = 5;
+        if(top5>matches.size()) top5=matches.size();
+        for(size_t i=0; i<top5; i++){
+            auto match = matches[i];
+            auto templ = detector.getTemplates("circle",
+                                               match.template_id);
+            // template:
+            // nums: num_pyramids * num_modality (modality, depth or RGB, always 1 here)
+            // template[0]: lowest pyrimad(more pixels)
+            // template[0].width: actual width of the matched template
+            // template[0].tl_x / tl_y: topleft corner when cropping templ during training
+            // In this case, we can regard width/2 = radius
+            int x =  templ[0].width/2 + match.x;
+            int y = templ[0].height/2 + match.y;
+            int r = templ[0].width/2;
+            Scalar color(255, rand()%255, rand()%255);
+
+            cv::putText(img, to_string(int(round(match.similarity))),
+                        Point(match.x+r-10, match.y-3), FONT_HERSHEY_PLAIN, 2, color);
+            cv::circle(img, {x, y}, r, color, 2);
+        }
+
+        imshow("img", img);
+        waitKey(0);
+
+        std::cout << "test end" << std::endl << std::endl;
+    }
+}
+
+void angle_test(string mode = "test", bool use_rot = true){
+    line2Dup::Detector detector(128, {4, 8});
+
+    if(mode != "test"){
+        Mat img = imread(prefix+"case1/train.png");
+        
+        assert(!img.empty() && "check your img path");
+
+        Rect roi(130, 110, 270, 270);
+        img = img(roi).clone();
+        Mat mask = Mat(img.size(), CV_8UC1, {255});
+
+        // padding to avoid rotating out
+        int padding = 100;
+        cv::Mat padded_img = cv::Mat(img.rows + 2*padding, img.cols + 2*padding, img.type(), cv::Scalar::all(0));
+        img.copyTo(padded_img(Rect(padding, padding, img.cols, img.rows)));
+
+        cv::Mat padded_mask = cv::Mat(mask.rows + 2*padding, mask.cols + 2*padding, mask.type(), cv::Scalar::all(0));
+        mask.copyTo(padded_mask(Rect(padding, padding, img.cols, img.rows)));
+
+        shape_based_matching::shapeInfo_producer shapes(padded_img, padded_mask);
+        shapes.angle_range = {0, 360};
+        shapes.angle_step = 1;
+
+        shapes.scale_range = {1}; // support just one
+        shapes.produce_infos();
+        std::vector<shape_based_matching::Info> infos_have_templ;
+        string class_id = "test";
+
+        bool is_first = true;
+
+        // for other scales you want to re-extract points: 
+        // set shapes.scale_range then produce_infos; set is_first = false;
+
+        int first_id = 0;
+        float first_angle = 0;
+        for(auto& info: shapes.infos){
+            Mat to_show = shapes.src_of(info);
+
+            std::cout << "\ninfo.angle: " << info.angle << std::endl;
+            int templ_id;
+
+            if(is_first){
+                templ_id = detector.addTemplate(shapes.src_of(info), class_id, shapes.mask_of(info));
+                first_id = templ_id;
+                first_angle = info.angle;
+
+                if(use_rot) is_first = false;
+            }else{
+                templ_id = detector.addTemplate_rotate(class_id, first_id,
+                                                       info.angle-first_angle,
+                                                {shapes.src.cols/2.0f, shapes.src.rows/2.0f});
+            }
+
+            auto templ = detector.getTemplates("test", templ_id);
+            for(int i=0; i<templ[0].features.size(); i++){
+                auto feat = templ[0].features[i];
+                cv::circle(to_show, {feat.x+templ[0].tl_x, feat.y+templ[0].tl_y}, 3, {0, 0, 255}, -1);
+            }
+            
+            // will be faster if not showing this
+            imshow("train", to_show);
+            waitKey(1);
+
+            std::cout << "templ_id: " << templ_id << std::endl;
+            if(templ_id != -1){
+                infos_have_templ.push_back(info);
+            }
+        }
+        detector.writeClasses(prefix+"case1/%s_templ.yaml");
+        shapes.save_infos(infos_have_templ, prefix + "case1/test_info.yaml");
+        std::cout << "train end" << std::endl << std::endl;
+    }else if(mode=="test"){
+        std::vector<std::string> ids;
+        ids.push_back("test");
+        detector.readClasses(ids, prefix+"case1/%s_templ.yaml");
+        std::cout << "read  yaml";
+        // angle & scale are saved here, fetched by match id
+        shape_based_matching::shapeInfo_producer producer;
+        auto infos = producer.load_infos(prefix + "case1/test_info.yaml");
+
+        Mat test_img = imread(prefix+"case1/test.png");
+        std::cout << "read  test image";
+        assert(!test_img.empty() && "check your img path");
+
+        int padding = 250;
+        cv::Mat padded_img = cv::Mat(test_img.rows + 2*padding,
+                                     test_img.cols + 2*padding, test_img.type(), cv::Scalar::all(0));
+        test_img.copyTo(padded_img(Rect(padding, padding, test_img.cols, test_img.rows)));
+
+        int stride = 16;
+        int n = padded_img.rows/stride;
+        int m = padded_img.cols/stride;
+        Rect roi(0, 0, stride*m , stride*n);
+        Mat img = padded_img(roi).clone();
+        assert(img.isContinuous());
+
+//        cvtColor(img, img, CV_BGR2GRAY);
+
+        std::cout << "test img size: " << img.rows * img.cols << std::endl << std::endl;
+
+        Timer timer;
+        auto matches = detector.match(img, 90, "test", ids);
+        timer.out();
+
+        if(img.channels() == 1) cvtColor(img, img, CV_GRAY2BGR);
+
+        std::cout << "matches.size(): " << matches.size() << std::endl;
+        size_t top5 = 1;
+        if(top5>matches.size()) top5=matches.size();
+        for(size_t i=0; i<top5; i++){
+            auto match = matches[i];
+            auto templ = detector.getTemplates("test",
+                                               match.template_id);
+
+            // 270 is width of template image
+            // 100 is padding when training
+            // tl_x/y: template croping topleft corner when training
+
+            float r_scaled = 270/2.0f*infos[match.template_id].scale;
+
+            // scaling won't affect this, because it has been determined by warpAffine
+            // cv::warpAffine(src, dst, rot_mat, src.size()); last param
+            float train_img_half_width = 270/2.0f + 100;
+            float train_img_half_height = 270/2.0f + 100;
+
+            // center x,y of train_img in test img
+            float x =  match.x - templ[0].tl_x + train_img_half_width;
+            float y =  match.y - templ[0].tl_y + train_img_half_height;
+
+            cv::Vec3b randColor;
+            randColor[0] = rand()%155 + 100;
+            randColor[1] = rand()%155 + 100;
+            randColor[2] = rand()%155 + 100;
+            for(int i=0; i<templ[0].features.size(); i++){
+                auto feat = templ[0].features[i];
+                cv::circle(img, {feat.x+match.x, feat.y+match.y}, 3, randColor, -1);
+            }
+
+            cv::putText(img, to_string(int(round(match.similarity))),
+                        Point(match.x+r_scaled-10, match.y-3), FONT_HERSHEY_PLAIN, 2, randColor);
+
+            cv::RotatedRect rotatedRectangle({x, y}, {2*r_scaled, 2*r_scaled}, -infos[match.template_id].angle);
+
+            cv::Point2f vertices[4];
+            rotatedRectangle.points(vertices);
+            for(int i=0; i<4; i++){
+                int next = (i+1==4) ? 0 : (i+1);
+                cv::line(img, vertices[i], vertices[next], randColor, 2);
+            }
+
+            std::cout << "\nmatch.template_id: " << match.template_id << std::endl;
+            std::cout << "match.similarity: " << match.similarity << std::endl;
+        }
+
+        imshow("img", img);
+        waitKey(0);
+
+        std::cout << "test end" << std::endl << std::endl;
+    }
+}
+
+void noise_test(string mode = "test"){
+    line2Dup::Detector detector(30, {4, 8});
+
+    if(mode == "train"){
+        Mat img = imread(prefix+"case2/train.png");
+        assert(!img.empty() && "check your img path");
+        Mat mask = Mat(img.size(), CV_8UC1, {255});
+
+        shape_based_matching::shapeInfo_producer shapes(img, mask);
+        shapes.angle_range = {0, 360};
+        shapes.angle_step = 1;
+        shapes.produce_infos();
+        std::vector<shape_based_matching::Info> infos_have_templ;
+        string class_id = "test";
+        for(auto& info: shapes.infos){
+            imshow("train", shapes.src_of(info));
+            waitKey(1);
+
+            std::cout << "\ninfo.angle: " << info.angle << std::endl;
+            int templ_id = detector.addTemplate(shapes.src_of(info), class_id, shapes.mask_of(info));
+            std::cout << "templ_id: " << templ_id << std::endl;
+            if(templ_id != -1){
+                infos_have_templ.push_back(info);
+            }
+        }
+        detector.writeClasses(prefix+"case2/%s_templ.yaml");
+        shapes.save_infos(infos_have_templ, prefix + "case2/test_info.yaml");
+        std::cout << "train end" << std::endl << std::endl;
+    }else if(mode=="test"){
+        std::vector<std::string> ids;
+        ids.push_back("test");
+        detector.readClasses(ids, prefix+"case2/%s_templ.yaml");
+
+        Mat test_img = imread(prefix+"case2/test.png");
+        assert(!test_img.empty() && "check your img path");
+
+        // cvtColor(test_img, test_img, CV_BGR2GRAY);
+
+        int stride = 16;
+        int n = test_img.rows/stride;
+        int m = test_img.cols/stride;
+        Rect roi(0, 0, stride*m , stride*n);
+
+        test_img = test_img(roi).clone();
+
+        Timer timer;
+        auto matches = detector.match(test_img, 90, "test",  ids);
+        timer.out();
+
+        std::cout << "matches.size(): " << matches.size() << std::endl;
+        size_t top5 = 500;
+        if(top5>matches.size()) top5=matches.size();
+
+        vector<Rect> boxes;
+        vector<float> scores;
+        vector<int> idxs;
+        for(auto match: matches){
+            Rect box;
+            box.x = match.x;
+            box.y = match.y;
+
+            auto templ = detector.getTemplates("test",
+                                               match.template_id);
+
+            box.width = templ[0].width;
+            box.height = templ[0].height;
+            boxes.push_back(box);
+            scores.push_back(match.similarity);
+        }
+        cv_dnn::NMSBoxes(boxes, scores, 0, 0.5f, idxs);
+
+        for(auto idx: idxs){
+            auto match = matches[idx];
+            auto templ = detector.getTemplates("test",
+                                               match.template_id);
+
+            int x =  templ[0].width + match.x;
+            int y = templ[0].height + match.y;
+            int r = templ[0].width/2;
+            cv::Vec3b randColor;
+            randColor[0] = rand()%155 + 100;
+            randColor[1] = rand()%155 + 100;
+            randColor[2] = rand()%155 + 100;
+
+            for(int i=0; i<templ[0].features.size(); i++){
+                auto feat = templ[0].features[i];
+                cv::circle(test_img, {feat.x+match.x, feat.y+match.y}, 2, randColor, -1);
+            }
+
+            cv::putText(test_img, to_string(int(round(match.similarity))),
+                        Point(match.x+r-10, match.y-3), FONT_HERSHEY_PLAIN, 2, randColor);
+            cv::rectangle(test_img, {match.x, match.y}, {x, y}, randColor, 2);
+
+            std::cout << "\nmatch.template_id: " << match.template_id << std::endl;
+            std::cout << "match.similarity: " << match.similarity << std::endl;
+        }
+
+        imshow("img", test_img);
+        waitKey(0);
+
+        std::cout << "test end" << std::endl << std::endl;
+    }
+}
+
+void MIPP_test(){
+    std::cout << "MIPP tests" << std::endl;
+    std::cout << "----------" << std::endl << std::endl;
+
+    std::cout << "Instr. type:       " << mipp::InstructionType                  << std::endl;
+    std::cout << "Instr. full type:  " << mipp::InstructionFullType              << std::endl;
+    std::cout << "Instr. version:    " << mipp::InstructionVersion               << std::endl;
+    std::cout << "Instr. size:       " << mipp::RegisterSizeBit       << " bits" << std::endl;
+    std::cout << "Instr. lanes:      " << mipp::Lanes                            << std::endl;
+    std::cout << "64-bit support:    " << (mipp::Support64Bit    ? "yes" : "no") << std::endl;
+    std::cout << "Byte/word support: " << (mipp::SupportByteWord ? "yes" : "no") << std::endl;
+
+#ifndef has_max_int8_t
+        std::cout << "in this SIMD, int8 max is not inplemented by MIPP" << std::endl;
+#endif
+
+#ifndef has_shuff_int8_t
+        std::cout << "in this SIMD, int8 shuff is not inplemented by MIPP" << std::endl;
+#endif
+
+    std::cout << "----------" << std::endl << std::endl;
+}
+
+int main(){
+    // scale_test("test");
+    MIPP_test();
+    angle_test("test", false); // test or train
+    // noise_test("test");
+    
+    return 0;
+}

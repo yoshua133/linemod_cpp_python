@@ -5,7 +5,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <map>
 
-#include "mipp.h"  // for SIMD in different platforms
+#include  "/home/xiangdawei/linemod_python/linemod_cpp_python/MIPP/mipp.h"   // for SIMD in different platforms
 
 namespace line2Dup
 {
@@ -151,7 +151,7 @@ public:
     Detector(std::vector<int> T);
     Detector(int num_features, std::vector<int> T, float weak_thresh = 30.0f, float strong_thresh = 60.0f);
 
-    std::vector<Match> match(cv::Mat sources, float threshold,
+    std::vector<Match> match(cv::Mat sources, float threshold, std::string name_i, 
                                                      const std::vector<std::string> &class_ids = std::vector<std::string>(),
                                                      const cv::Mat masks = cv::Mat()) const;
 
